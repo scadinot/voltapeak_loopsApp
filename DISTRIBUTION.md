@@ -37,22 +37,26 @@ Deux workflows committés à `.github/workflows/` :
 ### `build-artifact.yml`
 
 Déclenché à chaque push sur `main` (ou manuellement via
-`workflow_dispatch`) :
+`workflow_dispatch`), runner `macos-latest` :
 
-1. Archive l'app sur `macos-26` (Xcode 26+).
-2. Signature ad-hoc (`CODE_SIGN_IDENTITY="-"`).
+1. Détecte le scheme par défaut via
+   `xcodebuild -list -project voltapeak_loops.xcodeproj -json`.
+2. Archive l'app sur `macos-latest` avec signature ad-hoc
+   (`CODE_SIGN_IDENTITY="-"`).
 3. Upload du contenu de
    `build/voltapeak_loops.xcarchive/Products/Applications` comme
-   artifact GitHub nommé `voltapeak_loops-unsigned-<sha>`.
+   artifact GitHub nommé d'après le scheme et le SHA :
+   `${scheme}-unsigned-${github.sha}` (en pratique
+   `voltapeak_loops-unsigned-<sha>`).
 
 Utile pour le smoke-test continu : télécharger l'artifact, le
 décompresser, lancer le `.app` sur un Mac de test.
 
 ### `release.yml`
 
-Déclenché par un push de tag (`v*` ou `[0-9]*`) :
+Déclenché par un push de tag (`v*` ou `[0-9]*`), runner `macos-26` :
 
-1. Archive l'app sur `macos-26`.
+1. Archive l'app.
 2. Empaquette via `ditto -c -k --keepParent` en
    `voltapeak_loops-<TAG>.zip`.
 3. Crée (ou met à jour avec `--clobber`) la release GitHub
