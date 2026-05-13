@@ -32,7 +32,8 @@ Cette validation n'est **pas rejouée** ici. Pour la vérifier en pratique :
 
 1. Choisir un fichier SWV de test.
 2. L'ouvrir dans `voltapeakApp` → noter le pic affiché.
-3. Le placer seul dans un dossier et lancer `voltapeak_loopsApp` dessus.
+3. Le placer seul dans un dossier et lancer l'app `voltapeak_loops`
+   (scheme du repo `voltapeak_loopsApp`) dessus.
 4. Ouvrir le `<dossier>.xlsx` produit : le pic dans l'unique ligne doit
    être identique à celui affiché par `voltapeakApp` (mêmes décimales).
 
@@ -70,7 +71,14 @@ Le pipeline a été conçu pour être **déterministe** : `processOne` est
 pur compute, le tri par potentiel est fait à l'intérieur de la tâche, et
 l'agrégation finale trie les clés (canal, variante) avant génération
 XLSX. L'ordre dans lequel les tâches du `TaskGroup` se terminent n'a
-aucun impact sur le résultat.
+aucun impact sur le résultat **tant que le dossier ne contient pas de
+doublons** (même `iterationKey` + même `(canal, variante)`). En présence
+de doublons, l'agrégation conserve la **première occurrence reçue** par
+le ViewModel : en multi-thread, « première » dépend alors de l'ordre de
+complétion des tâches, et la sortie peut différer entre multi-thread et
+séquentiel. Ce cas est signalé par un avertissement rouge dans le
+journal (cf. § 2.e « Doublons ») ; pour une reproductibilité stricte sur
+un dossier susceptible d'en contenir, utiliser le mode séquentiel.
 
 ### (c) Structure du classeur agrégé
 
@@ -110,7 +118,7 @@ Lancer l'analyse. Résultat attendu :
 | Dossier d'entrée vide (aucun `.txt`) | Erreur rouge, terminaison propre |
 | Dossier de sortie non créable (permission denied) | Erreur rouge, terminaison propre (grâce à `cleanOutputFolder` `throws`) |
 | Fichier `.txt` avec entête uniquement (< 5 points) | `status = .error("Moins de 5 points de données.")`, ligne rouge dans le journal, autres fichiers continuent |
-| Doublons (canal, variante, itération) | Avertissement rouge, **première occurrence** conservée dans le classeur |
+| Doublons (canal, variante, itération) | Avertissement rouge, **première occurrence reçue** conservée dans le classeur — l'ordre de réception dépend du mode (cf. § 2.b) |
 | Export PNG/CSV/XLSX qui échoue (dossier résultats en lecture seule pendant l'exécution) | Avertissement rouge par fichier, l'analyse continue, le classeur agrégé final n'est pas affecté |
 
 ### (f) Performance approximative
@@ -153,9 +161,11 @@ conversion stricte de l'`iterationKey`.
 ✅ Agrégation XLSX : structure 3 lignes d'en-tête + fusions + tri validée
 manuellement sur dossiers de fixtures.
 
-✅ Cohérence parallèle vs séquentiel : `processOne` pur compute,
-agrégation finale triée → l'ordre de complétion des tâches n'a pas
-d'impact sur la sortie.
+✅ Cohérence parallèle vs séquentiel **en l'absence de doublons** :
+`processOne` pur compute, agrégation finale triée → l'ordre de
+complétion des tâches n'a pas d'impact sur la sortie. En présence de
+doublons, voir § 2.b — le mode séquentiel est recommandé pour la
+reproductibilité stricte.
 
 ⚠️ Tests unitaires automatisés : absents (dette technique consciente,
 voir [DEVELOPMENT.md § Tests](DEVELOPMENT.md#tests) pour pistes).
