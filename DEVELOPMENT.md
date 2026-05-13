@@ -1,5 +1,18 @@
 # Guide développeur
 
+Guide à l'attention des contributeurs souhaitant faire évoluer
+`voltapeak_loopsApp`. Pour la **méthodologie de validation**, voir
+[VALIDATION.md](VALIDATION.md). Pour les **détails algorithmiques**, voir
+[ALGORITHMS.md](ALGORITHMS.md).
+
+Les fonctions d'analyse de cette app sont **reprises à l'identique** de
+[`voltapeakApp`](https://github.com/scadinot/voltapeakApp), qui en est la
+**référence canonique** ; le rendu PNG par fichier est calqué sur celui
+de [`voltapeak_batchApp`](https://github.com/scadinot/voltapeak_batchApp).
+Toute modification numérique se fait dans `voltapeakApp` en premier et
+est propagée ici sans changement (cf. § « Mise à jour des fonctions
+d'analyse »).
+
 ## Prérequis
 
 | Outil | Version |
@@ -9,18 +22,17 @@
 | **Python** (uniquement pour validation croisée) | 3.11+ avec `numpy`, `scipy`, `pybaselines`, `pandas`, `matplotlib`, `openpyxl` |
 
 Toutes les bibliothèques Swift utilisées proviennent du SDK macOS
-(`SwiftUI`, `Charts`, `Foundation`, `AppKit`, `Observation`).
-**Aucun Swift Package Manager.**
+(`SwiftUI`, `Charts`, `Foundation`, `AppKit`, `Observation`). **Aucun
+Swift Package Manager.**
 
-## Build
+## Build et lancement
 
 ```bash
 git clone https://github.com/scadinot/voltapeak_loopsApp.git
 cd voltapeak_loopsApp
 open voltapeak_loops.xcodeproj
+# ⌘R pour compiler et lancer
 ```
-
-Dans Xcode : **⌘R** pour compiler et lancer.
 
 En ligne de commande (utilisé par la CI) :
 
@@ -83,29 +95,33 @@ voltapeak_loopsApp/                # racine du dépôt
 | Acronymes scientifiques | Conservés en minuscules : `aspls`, `savgol`, etc. |
 | Actor isolation | **Pas de** `@MainActor` au niveau target. Seuls `VoltapeakLoopsViewModel` et les vues SwiftUI sont explicitement `@MainActor`. Les compute namespaces (`SavitzkyGolay`, `WhittakerASPLS`, etc.) sont nonisolated. |
 
-Les fichiers Swift sont écrits en français pour la cohérence avec l'UI et les
-commentaires existants. C'est un projet francophone assumé.
+Les fichiers Swift sont écrits en français pour la cohérence avec l'UI
+et les commentaires existants. C'est un projet francophone assumé.
 
 ## Ajouter une fonctionnalité
 
 ### Exemple : nouveau format de noms de fichiers
 
 1. **Parser** (`FileNameParser.swift`) :
-   - Ajouter une régex case-insensitive dans la même famille que `loopsRegex` /
-     `dosageRegex`.
+   - Ajouter une régex case-insensitive dans la même famille que
+     `loopsRegex` / `dosageRegex`.
    - Étendre `FileNameFormat` avec un nouveau case.
-   - Ajouter le pattern dans `parse(...)` (ordre : du plus restrictif au moins
-     restrictif).
+   - Ajouter le pattern dans `parse(...)` (ordre : du plus restrictif au
+     moins restrictif).
 2. **Agrégation** (`AggregatedXLSXWriter.swift`) :
-   - Si le tri/indexLabel doit différer, ajouter le case dans `build(rows:format:)`.
-3. **Test manuel** : préparer un dossier mixant le nouveau format avec un ancien
-   → vérifier le refus rouge ; préparer un dossier homogène → vérifier l'export.
+   - Si le tri/indexLabel doit différer, ajouter le case dans
+     `build(rows:format:)`.
+3. **Test manuel** : préparer un dossier mixant le nouveau format avec
+   un ancien → vérifier le refus rouge ; préparer un dossier homogène →
+   vérifier l'export.
 
 ### Exemple : nouveau format d'export par fichier (ex. JSON)
 
-1. **PerFileExporters** : ajouter `writeCleanedJSON(potentials:currents:to:)`.
+1. **PerFileExporters** : ajouter
+   `writeCleanedJSON(potentials:currents:to:)`.
 2. **BatchOptions.ProcessedExport** : ajouter le case `.json`.
-3. **VoltapeakLoopsViewModel.performPerFileExports** : nouveau `case .json`.
+3. **VoltapeakLoopsViewModel.performPerFileExports** : nouveau
+   `case .json`.
 4. **ContentView.settingsBox** : ajouter une option radio.
 
 ### Exemple : changer un paramètre d'algorithme
@@ -118,12 +134,28 @@ parité). Pour les rendre configurables :
 - Surfacer dans `ContentView.settingsBox`.
 - Passer la valeur dans l'appel à `aspls` / `detectPeak`.
 
+## Mise à jour des fonctions d'analyse
+
+`voltapeakApp` est la **source de vérité** des fonctions d'analyse.
+Lorsqu'une amélioration y est apportée
+(`SavitzkyGolay.swift`, `WhittakerASPLS.swift`, `SignalProcessing.swift`,
+`SWVFileReader.swift`, `VoltammetryData.swift`) :
+
+1. Copier le fichier modifié dans `voltapeak_loops/`.
+2. Mettre à jour l'entête de commentaire (changer `voltapeak` →
+   `voltapeak_loops`).
+3. Ajouter les conformances `Sendable` requises pour `TaskGroup` (les
+   types `VoltammetryAnalysis`, `VoltammetryPoint`, etc.).
+4. Vérifier que la sortie batch reste identique sur les jeux de
+   validation ([VALIDATION.md](VALIDATION.md)).
+5. Ajouter une entrée dans [CHANGELOG.md](CHANGELOG.md).
+
 ## Débugger
 
 ### Logs console Xcode
 
-Le `VoltapeakLoopsViewModel.run` émet des `appendLog(...)` que l'utilisateur
-voit dans la GUI :
+Le `VoltapeakLoopsViewModel.run` émet des `appendLog(...)` que
+l'utilisateur voit dans la GUI :
 
 ```
 Nettoyage du dossier de sortie...
@@ -135,9 +167,9 @@ Fichiers traités : 24 / 24
 Temps écoulé : 1.42 secondes.
 ```
 
-Pour des détails plus fins (signal intermédiaire, baseline, etc.), ajouter
-des `print(...)` directement dans `processOne`. Format recommandé pour la
-comparaison avec voltapeakApp / Python :
+Pour des détails plus fins (signal intermédiaire, baseline, etc.),
+ajouter des `print(...)` directement dans `processOne`. Format
+recommandé pour la comparaison avec `voltapeakApp` / Python :
 
 ```swift
 print("=== aspls DEBUG (Swift) ===")
@@ -145,34 +177,36 @@ print("first5 : \(baseline.prefix(5).map { String(format: "%.6e", $0) })")
 print("last5  : \(baseline.suffix(5).map { String(format: "%.6e", $0) })")
 ```
 
-Visible dans la console Xcode lors du run (View → Debug Area → Show Debug
-Area).
+Visible dans la console Xcode lors du run (View → Debug Area → Show
+Debug Area).
 
 ### Vérifier la parité numérique avec voltapeakApp
 
-Les fonctions d'analyse étant reprises à l'identique, traiter un même fichier
-individuel doit produire un pic strictement identique entre les deux apps.
-Si ce n'est pas le cas, c'est un signe que quelque chose a divergué dans la
-copie — voir [VALIDATION.md](VALIDATION.md) § « Parité numerique ».
+Les fonctions d'analyse étant reprises à l'identique, traiter un même
+fichier individuel doit produire un pic strictement identique entre les
+deux apps. Si ce n'est pas le cas, c'est un signe que quelque chose a
+divergé dans la copie — voir [VALIDATION.md](VALIDATION.md) §
+« Parité numérique avec voltapeakApp ».
 
 ## Tests
 
-**État actuel** : aucun test unitaire automatisé. Les fonctions d'analyse
-sont déjà validées dans `voltapeakApp` (bit-exact contre Python). La
-validation propre au batch est manuelle, documentée dans
+**État actuel** : aucun test unitaire automatisé. Les fonctions
+d'analyse sont déjà validées dans `voltapeakApp` (bit-exact contre
+Python). La validation propre au batch est manuelle, documentée dans
 [VALIDATION.md](VALIDATION.md).
 
 Pistes pour ajouter une cible de tests :
 
-1. **Tests algorithmiques** (priorité faible — déjà validés dans voltapeakApp).
-2. **Tests d'agrégation** : construire un `[BatchFileResult]` synthétique →
-   appeler `AggregatedXLSXWriter.build` → vérifier l'XML produit
-   (snapshot test).
+1. **Tests algorithmiques** (priorité faible — déjà validés dans
+   `voltapeakApp`).
+2. **Tests d'agrégation** : construire un `[BatchFileResult]`
+   synthétique → appeler `AggregatedXLSXWriter.build` → vérifier l'XML
+   produit (snapshot test).
 3. **Tests de parsing** : `FileNameParser.parse` sur une table de cas
    (loops, dosage, casse, formats invalides).
-4. **Tests d'intégration** : charger un mini-dossier de fixtures → lancer
-   `LoopsBatchProcessor.processOne` sur chaque fichier → vérifier pic +
-   métadonnées.
+4. **Tests d'intégration** : charger un mini-dossier de fixtures →
+   lancer `LoopsBatchProcessor.processOne` sur chaque fichier → vérifier
+   pic + métadonnées.
 
 Pour démarrer : ajouter une cible `voltapeak_loopsTests` dans Xcode,
 framework `Swift Testing` ou XCTest.
@@ -184,5 +218,5 @@ framework `Swift Testing` ou XCTest.
 - [scipy.signal documentation](https://docs.scipy.org/doc/scipy/reference/signal.html)
 - [pybaselines repo](https://github.com/derb12/pybaselines)
 - [Zhang et al. 2020 paper (asPLS)](https://www.tandfonline.com/doi/full/10.1080/00387010.2020.1734588)
-- [voltapeakApp — app de référence pour les fonctions d'analyse](https://github.com/scadinot/voltapeakApp)
-- [voltapeak_batchApp — app de référence pour le rendu PNG](https://github.com/scadinot/voltapeak_batchApp)
+- [`voltapeakApp`](https://github.com/scadinot/voltapeakApp) — référence canonique des fonctions d'analyse
+- [`voltapeak_batchApp`](https://github.com/scadinot/voltapeak_batchApp) — variante batch multi-électrodes (source du `ChartPNGRenderer`)
