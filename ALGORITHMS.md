@@ -1,14 +1,14 @@
 # Algorithmes numériques
 
-Ce document détaille les algorithmes mathématiques utilisés dans `voltapeak_loops`
-et leur correspondance avec la référence Python (`scipy`, `numpy`, `pybaselines`).
-Les fonctions d'analyse sont **reprises à l'identique** de
-[`scadinot/voltapeakApp`](https://github.com/scadinot/voltapeakApp), où elles
-ont été validées bit-exact (à la 6ᵉ décimale) contre le script Python source.
+Ce document détaille les algorithmes mathématiques utilisés dans
+`voltapeak_loopsApp` et leur correspondance avec la référence Python
+(`scipy`, `numpy`, `pybaselines`).
 
-La partie spécifique à `voltapeak_loops` est l'**orchestration batch** qui
-enchaîne ce pipeline sur chaque fichier d'un dossier, puis l'**agrégation
-finale** en classeur Excel hiérarchique.
+Le pipeline d'analyse (sections 1-7) est strictement **identique** à celui
+de [`voltapeakApp`](https://github.com/scadinot/voltapeakApp), validé
+bit-exact à la 6ᵉ décimale contre la référence Python. Les sections 8 et 9
+décrivent l'orchestration propre aux dossiers loops/dosage : parsing,
+exécution parallèle, agrégation XLSX hiérarchique et rendu PNG par fichier.
 
 La validation propre au batch (parité multi-thread vs séquentiel, parsing
 loops/dosage, structure XLSX) est documentée dans [VALIDATION.md](VALIDATION.md).
@@ -27,12 +27,12 @@ loops/dosage, structure XLSX) est documentée dans [VALIDATION.md](VALIDATION.md
   ```
 - **Séparateurs configurables** : tabulation, virgule, point-virgule, espace
 - **Décimale configurable** : point ou virgule
-- **Filtrage anticipé** : les lignes à courant nul sont écartées dès la lecture
+- **Filtrage anticipé** : les lignes à courant nul sont écartées dès la lecture (le Python les filtre dans `processData`, mais le résultat est identique car la somme des zéros est nulle)
 
 ## 2. Traitement des données
 
-**Implémentation :** inliné dans `LoopsBatchProcessor.processOne(...)` (et
-`SWVFileReader.processData(_:)` pour usage isolé).
+**Implémentation :** `SWVFileReader.processData(_:)`, inliné dans
+`LoopsBatchProcessor.processOne(...)` pour le pipeline batch.
 
 Trois opérations en chaîne :
 
@@ -40,18 +40,20 @@ Trois opérations en chaîne :
 2. **Inversion de signe** du courant : `signal = -current`
    - Convention SWV cathodique : le courant mesuré est négatif
    - L'inversion permet à `argmax` de trouver le sommet du pic comme un maximum
-3. **Conservation parallèle du signe original** dans `ProcessedSignals.cleanedSignedCurrents`,
-   pour les exports per-fichier (équivalent `cleaned_df` du Python).
+3. **Conservation parallèle du signe original** dans
+   `ProcessedSignals.cleanedSignedCurrents`, pour les exports par fichier
+   (équivalent `cleaned_df` du Python).
 
-Le tri est fait **une seule fois** par fichier et les trois vecteurs (potentiels,
-courants inversés, courants signe original) sont attachés au `BatchFileResult`
-pour être réutilisés sans retri par les exports.
+Sortie : `(potentials: [Double], processedCurrents: [Double], cleanedSignedCurrents: [Double])`,
+tableaux alignés et triés. Le tri est fait **une seule fois** par fichier et
+les trois vecteurs sont attachés au `BatchFileResult` pour être réutilisés
+sans retri par les exports.
 
 ## 3. Lissage Savitzky-Golay
 
 **Implémentation :** `SavitzkyGolay.filter(_:windowLength:polynomialOrder:)`
 
-Équivalent à `scipy.signal.savgol_filter(signal, 11, 2, mode='interp')`.
+Équivalent strict à `scipy.signal.savgol_filter(signal, 11, 2, mode='interp')`.
 
 ### Principe
 
@@ -78,8 +80,8 @@ n'extrapole pas mais ajuste un polynôme de degré 2 sur les 11 premiers (resp.
 derniers) points et évalue ce polynôme à la position du point cherché.
 
 Cela donne **10 jeux de coefficients spécifiques** pour `pos ∈ {0, 1, 2, 3, 4, 6, 7, 8, 9, 10}`
-— obtenus avec `scipy.signal.savgol_coeffs(11, 2, pos=p, use='dot')` et codés en
-dur dans `SavitzkyGolay.boundaryCoeffs`.
+— obtenus avec `scipy.signal.savgol_coeffs(11, 2, pos=p, use='dot')` et codés
+en dur dans `SavitzkyGolay.boundaryCoeffs`.
 
 ### Référence
 
@@ -90,6 +92,10 @@ by Simplified Least Squares Procedures*. **Analytical Chemistry**, 36(8),
 ## 4. Détection de pic
 
 **Implémentation :** `SignalProcessing.detectPeak(signal:potentials:marginRatio:maxSlope:)`
+
+Appliquée deux fois dans le pipeline batch :
+1. sur le signal lissé pour positionner la zone d'exclusion asPLS,
+2. sur le signal corrigé pour la valeur finale retenue.
 
 ### Étape 1 : exclusion des bords
 
@@ -115,13 +121,21 @@ grad[i] = −hs / (hd·(hd+hs)) · y[i−1]
        + hd / (hs·(hd+hs)) · y[i+1]
 ```
 
-Aux bords : différence finie 1ᵉʳ ordre.
+Aux bords : différence finie 1ᵉʳ ordre (`grad[0] = (y[1]−y[0])/(x[1]−x[0])`,
+`grad[n−1]` symétrique).
+
+Cette formulation est plus précise que la simple différence centrée
+`(y[i+1]−y[i−1])/(x[i+1]−x[i−1])` quand les pas ne sont pas égaux.
 
 ### Étape 3 : argmax
 
 Parmi les candidats (filtrés ou pas), `argmax(signal)` donne l'indice du
 sommet. Si aucun candidat ne passe le filtre, le premier point de la zone de
 recherche est retourné (repli défensif).
+
+### Référence
+
+Documentation numpy : `numpy.gradient` — *second order accurate central differences in the interior points*.
 
 ## 5. Estimation de baseline asPLS Zhang 2020
 
@@ -152,10 +166,14 @@ où :
 (W + λ · diag(α) · D^T·D) · z = W · y
 ```
 
-⚠️ La matrice **n'est pas symétrique** à cause de `diag(α)` à gauche. Cette
-forme reproduit exactement `pybaselines` qui multiplie le penalty banded par
-alpha par broadcast. Le solveur Swift utilise une élimination de Gauss avec
+⚠️ La matrice **n'est pas symétrique** à cause de `diag(α)` à gauche (et pas
+`D^T·diag(α)·D` comme dans certaines présentations du papier). Cette forme
+reproduit exactement `pybaselines` qui multiplie le penalty banded par alpha
+par broadcast. Le solveur Swift utilise une élimination de Gauss avec
 pivotage partiel (`solveFallback`), pas une décomposition de Cholesky.
+
+`D^T·D` est pentadiagonal (différences d'ordre 2) et construit directement
+par `WhittakerASPLS.buildDTD(n:diffOrder:)`.
 
 ### Mise à jour itérative
 
@@ -163,24 +181,29 @@ pivotage partiel (`solveFallback`), pas une décomposition de Cholesky.
 
 1. **Solve** : `z = solveFallback(A, w·y)` où `A = W + λ·diag(α)·D^T·D`
 2. **Résidus** : `d = y − z`
-3. **Mise à jour des poids** (sigmoïde) :
+3. **Sortie anticipée** : si `card(d < 0) < 2`, on arrête (comme `pybaselines`)
+4. **Mise à jour des poids** (sigmoïde) :
    ```
    neg = d[d < 0]
    σ = std(neg, ddof=1)
-   w_new[i] = expit(−(k/σ) · (d[i] − σ))
+   w_new[i] = expit(−(k/σ) · (d[i] − σ))  =  1 / (1 + exp((k/σ)·(d[i] − σ)))
    ```
-   où `k = asymmetric_coef = 0.5` (défaut pybaselines).
-4. **Convergence** : si `Σ|w − w_new| / Σ|w_new| < tol`, on s'arrête.
-5. **Mise à jour de α** :
+   où `k = asymmetric_coef = 0.5` (défaut pybaselines). Si `σ = 0`, on arrête.
+5. **Convergence** : si `Σ|w − w_new| / Σ|w_new| < tol`, on s'arrête.
+6. **Mise à jour de α** :
    ```
    α[i] = |d[i]| / max(|d|)
    ```
+   Les points à fort résidu (pic) reçoivent un α proche de 1 → pénalité forte
+   → la baseline reste lisse à cet endroit. Les points à faible résidu (zone
+   baseline) ont α proche de 0 → pénalité faible → la baseline suit le
+   signal.
 
 ### Paramètres utilisés
 
 | Paramètre | Valeur | Origine |
 |---|---|---|
-| `lam` (lissage) | `1e3 × n²` | Mise à l'échelle empirique du Python |
+| `lam` (lissage) | `1e3 × n²` | Mise à l'échelle empirique du Python (voltapeak.py) |
 | `asymmetric_coef` (k) | `0.5` | Défaut pybaselines |
 | `tol` | `1e-2` | Voltapeak Python |
 | `max_iter` | `25` | Voltapeak Python |
@@ -199,7 +222,8 @@ for i où potentials[i] ∈ [xPeak − exclusionWidth, xPeak + exclusionWidth]:
 ```
 
 Cela évite que la baseline ne « remonte » vers le sommet du pic dès la
-première itération.
+première itération. Le sigmoid update prend ensuite le relais pour maintenir
+les poids bas dans cette zone.
 
 ### Référence
 
@@ -209,26 +233,40 @@ least squares method*. **Spectroscopy Letters**, 53(3), 222-233.
 
 Implémentation Python de référence : [`pybaselines.whittaker.aspls`](https://github.com/derb12/pybaselines).
 
+### asPLS vs asLS — différence essentielle
+
+| Aspect | asLS (Eilers 2005) | asPLS (Zhang 2020) |
+|---|---|---|
+| Pénalité | constante `λ` partout | adaptative `λ · α[i]` |
+| Poids | binaire : `p` si `y > z`, `1−p` sinon | sigmoïde basée sur `std(résidus négatifs)` |
+| Convergence | sur la baseline | sur les poids |
+| Paramètre clé | `p` (asymétrie, ~0.01) | `k` (asymetric_coef, 0.5) |
+
+Une version précédente du port Swift implémentait **asLS** (par erreur). Le
+résultat divergeait de ~22 % du Python. Le port actuel reproduit asPLS
+exactement.
+
 ## 6. Signal corrigé
 
 ```
 corrected[i] = smoothed[i] − baseline[i]
 ```
 
-Opération élément par élément.
+Opération élément par élément, triviale.
 
 ## 7. Re-détection du pic
 
-Le pic final est obtenu en réappliquant `detectPeak` sur le signal corrigé.
-La position du pic peut légèrement changer par rapport à la détection brute
-(étape 4) — le signal corrigé étant plus « net » sans la dérive de la baseline.
+Le pic final est obtenu en réappliquant `detectPeak` sur le signal corrigé. La
+position du pic peut légèrement changer par rapport à la détection brute
+(étape 4) — le signal corrigé étant plus « net » sans la dérive de la
+baseline.
 
 C'est cette deuxième détection (potentiel + courant corrigé) qui est inscrite
 dans la ligne du classeur Excel agrégé final.
 
 ## 8. Pipeline batch et agrégation
 
-Spécifique à `voltapeak_loops` :
+Spécifique à `voltapeak_loopsApp` :
 
 ### Enumération et parsing
 
@@ -247,7 +285,7 @@ fallback. Un fichier qui ne matche aucun des deux formats est marqué
 `VoltapeakLoopsViewModel.run` exécute le pipeline (étapes 1-7) en parallèle via
 `withTaskGroup`, un `Task` par fichier. Chaque tâche retourne un
 `BatchFileResult` Sendable contenant l'analyse complète + les vecteurs triés
-`ProcessedSignals`. Le ViewModel déclenche ensuite les exports par-fichier
+`ProcessedSignals`. Le ViewModel déclenche ensuite les exports par fichier
 (PNG, CSV, XLSX) sur le MainActor car `ChartPNGRenderer` nécessite
 `ImageRenderer` qui est `@MainActor`.
 
