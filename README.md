@@ -71,6 +71,15 @@ lire/écrire dans un dossier arbitraire choisi par l'utilisateur, comme dans
   `ImageRenderer` sur le MainActor, CSV/XLSX du dataframe nettoyé) sont
   exécutés côté ViewModel dès qu'un résultat de calcul est reçu du TaskGroup.
 
+## Documentation complémentaire
+
+- [ARCHITECTURE.md](ARCHITECTURE.md) — pipeline batch + d'analyse, fichiers Swift, modèles de données, concurrence, choix de design.
+- [ALGORITHMS.md](ALGORITHMS.md) — détails mathématiques de chaque étape (Savitzky-Golay, detectPeak, asPLS Zhang 2020, rendu PNG).
+- [VALIDATION.md](VALIDATION.md) — méthodologie de validation : parité numérique vs voltapeakApp, parsing, cohérence multi-thread, structure XLSX.
+- [DEVELOPMENT.md](DEVELOPMENT.md) — prérequis, build CLI, conventions de code, débogage, ajout de fonctionnalités.
+- [DISTRIBUTION.md](DISTRIBUTION.md) — CI GitHub Actions (build-artifact + release), signature ad-hoc, notarisation Apple, DMG.
+- [CHANGELOG.md](CHANGELOG.md) — historique versionné (Keep-a-Changelog / SemVer).
+
 ## Crédits
 
 - Script Python original : [`scadinot/voltapeak_loops`](https://github.com/scadinot/voltapeak_loops).
