@@ -88,8 +88,11 @@ enum AggregatedXLSXWriter {
         }
         row3 += "</row>"
 
-        // Lignes de données
-        var dataRows = ""
+        // Lignes de données : on accumule chaque <row> dans un tableau puis on
+        // assemble avec joined(), pour éviter les copies répétées d'une grande
+        // String quand le nombre de fichiers/itérations devient important.
+        var dataRowParts: [String] = []
+        dataRowParts.reserveCapacity(rows.count)
         for (idx, r) in rows.enumerated() {
             let n = idx + 4
             var rowXML = "<row r=\"\(n)\">"
@@ -103,8 +106,9 @@ enum AggregatedXLSXWriter {
                 }
             }
             rowXML += "</row>"
-            dataRows += rowXML
+            dataRowParts.append(rowXML)
         }
+        let dataRows = dataRowParts.joined()
 
         // Fusion des cellules des lignes 1 et 2 sur chaque paire de colonnes
         var merges = ""

@@ -4,9 +4,11 @@
 //
 //  Orchestration de l'analyse batch :
 //  - paramètres saisis depuis la GUI,
+//  - préparation du dossier de sortie hors MainActor (peut bloquer sur disque réseau),
 //  - parallélisme via TaskGroup (un Task par fichier) ou Task détachée
 //    séquentielle (utile au débogage, équivalent du bouton de la GUI Python),
-//  - exports par-fichier (PNG/CSV/XLSX) sur le MainActor après chaque calcul,
+//  - exports par-fichier (PNG/CSV/XLSX) sur le MainActor après chaque calcul
+//    (les vecteurs triés sont réutilisés tels quels via BatchFileResult.signals),
 //  - agrégation finale puis génération du .xlsx final.
 //
 
@@ -80,9 +82,22 @@ final class VoltapeakLoopsViewModel {
             .appendingPathComponent("\(folderName) (results)")
 
         appendLog("Nettoyage du dossier de sortie...")
-        LoopsBatchProcessor.cleanOutputFolder(outputFolder)
 
-        let files = LoopsBatchProcessor.enumerateInputFiles(in: input)
+        // Préparation disque hors MainActor : sur un dossier volumineux ou un
+        // volume réseau, la création/scan peut bloquer plusieurs centaines de ms.
+        let files: [URL]
+        do {
+            files = try await Task.detached(priority: .utility) { () -> [URL] in
+                try LoopsBatchProcessor.cleanOutputFolder(outputFolder)
+                return LoopsBatchProcessor.enumerateInputFiles(in: input)
+            }.value
+        } catch {
+            appendLog("Erreur au nettoyage du dossier de sortie : \(error.localizedDescription)",
+                      isError: true)
+            isRunning = false
+            return
+        }
+
         progressTotal = files.count
 
         guard !files.isEmpty else {
@@ -122,9 +137,6 @@ final class VoltapeakLoopsViewModel {
                 return collected
             }
         } else {
-            // Mode séquentiel : on garde une Task détachée par fichier pour
-            // exécuter le calcul hors MainActor, sans bloquer l'UI ni le journal
-            // entre les fichiers (l'UI peut se rafraîchir entre chaque itération).
             for url in files {
                 let r = await Task.detached(priority: .utility) {
                     LoopsBatchProcessor.processOne(url: url, options: options)
@@ -215,9 +227,7 @@ final class VoltapeakLoopsViewModel {
         switch r.status {
         case .ok:
             appendLog("Traitement : \(r.fileName)")
-            if let analysis = r.analysis {
-                performPerFileExports(analysis: analysis, options: options)
-            }
+            performPerFileExports(result: r, options: options)
         case .skipped:
             appendLog("Fichier ignoré (nom non reconnu) : \(r.fileName)")
         case .error(let msg):
@@ -226,22 +236,24 @@ final class VoltapeakLoopsViewModel {
     }
 
     /// Exports par-fichier exécutés sur le MainActor (ImageRenderer y oblige).
-    /// Les échecs d'écriture sont logués en rouge mais ne bloquent pas la suite.
-    private func performPerFileExports(analysis: VoltammetryAnalysis, options: BatchOptions) {
-        let baseName = (analysis.fileName as NSString).deletingPathExtension
+    /// Réutilise les vecteurs déjà triés du `BatchFileResult` au lieu de relancer
+    /// un tri côté ViewModel. Les échecs d'écriture sont logués en rouge mais
+    /// ne bloquent pas la suite.
+    private func performPerFileExports(result r: BatchFileResult, options: BatchOptions) {
+        guard let analysis = r.analysis, let signals = r.signals else { return }
+        let baseName = (r.fileName as NSString).deletingPathExtension
 
         if options.exportGraph {
-            let (potentials, currents) = SWVFileReader.processData(analysis.rawData)
             let pngURL = options.outputFolder.appendingPathComponent(baseName + ".png")
             do {
                 try ChartPNGRenderer.renderPNG(
                     analysis: analysis,
-                    potentials: potentials,
-                    rawCurrents: currents,
+                    potentials: signals.potentials,
+                    rawCurrents: signals.processedCurrents,
                     to: pngURL
                 )
             } catch {
-                appendLog("Avertissement (\(analysis.fileName)) : échec export PNG : \(error.localizedDescription)",
+                appendLog("Avertissement (\(r.fileName)) : échec export PNG : \(error.localizedDescription)",
                           isError: true)
             }
         }
@@ -250,25 +262,27 @@ final class VoltapeakLoopsViewModel {
         case .none:
             break
         case .csv:
-            let (cleanedP, cleanedC) = SWVFileReader.cleanedSignedData(analysis.rawData)
             let csvURL = options.outputFolder.appendingPathComponent(baseName + ".csv")
             do {
                 try PerFileExporters.writeCleanedCSV(
-                    potentials: cleanedP, currents: cleanedC, to: csvURL
+                    potentials: signals.potentials,
+                    currents: signals.cleanedSignedCurrents,
+                    to: csvURL
                 )
             } catch {
-                appendLog("Avertissement (\(analysis.fileName)) : échec export CSV : \(error.localizedDescription)",
+                appendLog("Avertissement (\(r.fileName)) : échec export CSV : \(error.localizedDescription)",
                           isError: true)
             }
         case .xlsx:
-            let (cleanedP, cleanedC) = SWVFileReader.cleanedSignedData(analysis.rawData)
             let xlsxURL = options.outputFolder.appendingPathComponent(baseName + ".xlsx")
             do {
                 try PerFileExporters.writeCleanedXLSX(
-                    potentials: cleanedP, currents: cleanedC, to: xlsxURL
+                    potentials: signals.potentials,
+                    currents: signals.cleanedSignedCurrents,
+                    to: xlsxURL
                 )
             } catch {
-                appendLog("Avertissement (\(analysis.fileName)) : échec export XLSX : \(error.localizedDescription)",
+                appendLog("Avertissement (\(r.fileName)) : échec export XLSX : \(error.localizedDescription)",
                           isError: true)
             }
         }

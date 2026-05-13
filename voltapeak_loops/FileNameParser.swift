@@ -8,6 +8,8 @@
 //
 //  Les expressions régulières sont reprises à l'identique du script Python.
 //  Le format loops est testé en premier (plus restrictif), dosage sert de fallback.
+//  Les regex sont insensibles à la casse, en cohérence avec l'énumération des
+//  fichiers d'entrée qui accepte déjà `.TXT`/`.Txt`.
 //
 
 import Foundation
@@ -28,11 +30,17 @@ struct SWVFileMetadata: Sendable {
 enum FileNameParser {
 
     private static let loopsRegex: NSRegularExpression = {
-        try! NSRegularExpression(pattern: #".*?_([0-9]{2})_SWV_(C[0-9]{2})_loop([0-9]+)\.txt$"#)
+        try! NSRegularExpression(
+            pattern: #".*?_([0-9]{2})_SWV_(C[0-9]{2})_loop([0-9]+)\.txt$"#,
+            options: [.caseInsensitive]
+        )
     }()
 
     private static let dosageRegex: NSRegularExpression = {
-        try! NSRegularExpression(pattern: #"^([0-9]+)_([^_]+)_([0-9]{2})_SWV_(C[0-9]{2})\.txt$"#)
+        try! NSRegularExpression(
+            pattern: #"^([0-9]+)_([^_]+)_([0-9]{2})_SWV_(C[0-9]{2})\.txt$"#,
+            options: [.caseInsensitive]
+        )
     }()
 
     static func parse(_ fileName: String) -> SWVFileMetadata? {
@@ -41,10 +49,11 @@ enum FileNameParser {
         if let m = loopsRegex.firstMatch(in: fileName, range: range),
            let variante = capture(m, at: 1, in: fileName),
            let canal    = capture(m, at: 2, in: fileName),
-           let loop     = capture(m, at: 3, in: fileName) {
+           let loop     = capture(m, at: 3, in: fileName),
+           let loopKey  = Int(loop) {
             return SWVFileMetadata(
                 format: .loops,
-                iterationKey: Int(loop) ?? 0,
+                iterationKey: loopKey,
                 iterationLabel: "loop\(loop)",
                 variante: variante,
                 canal: canal
@@ -55,10 +64,11 @@ enum FileNameParser {
            let ordre         = capture(m, at: 1, in: fileName),
            let concentration = capture(m, at: 2, in: fileName),
            let variante      = capture(m, at: 3, in: fileName),
-           let canal         = capture(m, at: 4, in: fileName) {
+           let canal         = capture(m, at: 4, in: fileName),
+           let ordreKey      = Int(ordre) {
             return SWVFileMetadata(
                 format: .dosage,
-                iterationKey: Int(ordre) ?? 0,
+                iterationKey: ordreKey,
                 iterationLabel: concentration,
                 variante: variante,
                 canal: canal
