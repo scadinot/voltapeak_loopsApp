@@ -57,12 +57,13 @@ rendu PNG est calqué sur celui de
   (≈ 140 lignes au total), aucune dépendance tierce.
 - **CI GitHub Actions** :
   - `build-artifact.yml` : archive un `.app` non signé sur push `main`,
-    publie comme artifact.
+    publie comme artifact GitHub (runner `macos-latest`, nom d'artifact
+    `${scheme}-unsigned-${sha}`).
   - `release.yml` : sur tag `v*` ou `[0-9]*`, archive + `ditto` zip +
-    création de release GitHub avec asset attaché.
-  - Les deux workflows : runner `macos-26`, signature ad-hoc, détection
-    auto du scheme via
-    `xcodebuild -list -project voltapeak_loops.xcodeproj -json`.
+    création de release GitHub avec asset attaché (runner `macos-26`).
+  - Détection auto du scheme via
+    `xcodebuild -list -project voltapeak_loops.xcodeproj -json`,
+    signature ad-hoc dans les deux workflows.
 - **Documentation complète** : `README`, `ARCHITECTURE`, `ALGORITHMS`,
   `VALIDATION`, `DEVELOPMENT`, `DISTRIBUTION`, `CHANGELOG`.
 
@@ -90,7 +91,9 @@ rendu PNG est calqué sur celui de
 
 - macOS 26.1+ requis.
 - Xcode 26+ pour builder.
-- Universal binary (Intel + Apple Silicon).
+- Architecture cible : Apple Silicon (`arm64`) uniquement — macOS 26
+  (Tahoe) n'étant plus disponible sur Mac Intel, le binaire n'a pas de
+  tranche `x86_64` utile.
 
 ### Notes de validation
 
