@@ -1,0 +1,48 @@
+name: Build macOS App Artifact
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Archive unsigned .app and upload as artifact
+    runs-on: macos-26
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Detect scheme
+        run: |
+          default=$(xcodebuild -list -project voltapeak_loops.xcodeproj -json | ruby -e "require 'json'; puts JSON.parse(STDIN.read)['project']['schemes'][0]")
+          if [ -z "$default" ]; then
+            echo "::error::No Xcode scheme detected. Share a scheme via Xcode -> Manage Schemes (Shared checkbox) and commit voltapeak_loops.xcodeproj/xcshareddata/xcschemes/."
+            exit 1
+          fi
+          {
+            echo "scheme<<EOF"
+            echo "$default"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+          echo "Using scheme: $default"
+
+      - name: Archive
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -project voltapeak_loops.xcodeproj \
+            -scheme "$scheme" \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -archivePath build/voltapeak_loops.xcarchive \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGN_STYLE=Manual | xcpretty
+
+      - name: Upload .app as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.scheme }}-unsigned-${{ github.sha }}
+          path: build/voltapeak_loops.xcarchive/Products/Applications
+          if-no-files-found: error
