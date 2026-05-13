@@ -225,7 +225,9 @@ et l'usage interne.
   `Charts`.
 - **Xcode 26+** pour builder (le projet utilise
   `SWIFT_APPROACHABLE_CONCURRENCY = YES`).
-- **Architectures** : Universal (Intel x86_64 + Apple Silicon arm64).
+- **Architecture** : Apple Silicon (`arm64`) uniquement — macOS 26
+  (Tahoe) n'est plus supporté sur les Mac Intel, donc une éventuelle
+  tranche `x86_64` ne s'exécuterait sur aucune cible utile.
 - **App Sandbox** désactivé.
 
 ## Hors-scope (volontairement)
