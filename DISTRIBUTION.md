@@ -1,8 +1,12 @@
 # Distribution
 
-Ce guide explique comment produire une version distribuable de `voltapeak_loops`
-(`.app`, `.zip`, `.dmg`). Trois options selon le contexte : **CI automatisée**,
-**signature locale ad-hoc**, ou **notarisation Apple**.
+Ce guide explique comment produire une version distribuable de
+`voltapeak_loopsApp` (`.app`, `.zip`, `.dmg`). Trois options selon le
+contexte : **CI automatisée**, **signature locale ad-hoc**, ou
+**notarisation Apple**. Le canevas est identique entre les trois apps
+de la famille `voltapeak*` ; voir
+[`voltapeakApp/DISTRIBUTION.md`](https://github.com/scadinot/voltapeakApp/blob/main/DISTRIBUTION.md) et
+[`voltapeak_batchApp/DISTRIBUTION.md`](https://github.com/scadinot/voltapeak_batchApp/blob/main/DISTRIBUTION.md).
 
 ## Prérequis communs
 
@@ -32,24 +36,31 @@ Deux workflows committés à `.github/workflows/` :
 
 ### `build-artifact.yml`
 
-Déclenché à chaque push sur `main` (ou manuellement via `workflow_dispatch`) :
+Déclenché à chaque push sur `main` (ou manuellement via
+`workflow_dispatch`), runner `macos-latest` :
 
-1. Archive l'app sur `macos-26` (Xcode 26+).
-2. Signature ad-hoc (`CODE_SIGN_IDENTITY="-"`).
-3. Upload du contenu de `build/voltapeak_loops.xcarchive/Products/Applications`
-   comme artifact GitHub nommé `voltapeak_loops-unsigned-<sha>`.
+1. Détecte le scheme par défaut via
+   `xcodebuild -list -project voltapeak_loops.xcodeproj -json`.
+2. Archive l'app sur `macos-latest` avec signature ad-hoc
+   (`CODE_SIGN_IDENTITY="-"`).
+3. Upload du contenu de
+   `build/voltapeak_loops.xcarchive/Products/Applications` comme
+   artifact GitHub nommé d'après le scheme et le SHA :
+   `${scheme}-unsigned-${github.sha}` (en pratique
+   `voltapeak_loops-unsigned-<sha>`).
 
-Utile pour le smoke-test continu : télécharger l'artifact, le décompresser,
-lancer le `.app` sur un Mac de test.
+Utile pour le smoke-test continu : télécharger l'artifact, le
+décompresser, lancer le `.app` sur un Mac de test.
 
 ### `release.yml`
 
-Déclenché par un push de tag (`v*` ou `[0-9]*`) :
+Déclenché par un push de tag (`v*` ou `[0-9]*`), runner `macos-26` :
 
-1. Archive l'app sur `macos-26`.
-2. Empaquette via `ditto -c -k --keepParent` en `voltapeak_loops-<TAG>.zip`.
-3. Crée (ou met à jour avec `--clobber`) la release GitHub correspondante,
-   asset attaché, notes auto-générées.
+1. Archive l'app.
+2. Empaquette via `ditto -c -k --keepParent` en
+   `voltapeak_loops-<TAG>.zip`.
+3. Crée (ou met à jour avec `--clobber`) la release GitHub
+   correspondante, asset attaché, notes auto-générées.
 
 ```bash
 # Publier une release v1.0.0
@@ -57,19 +68,22 @@ git tag -a v1.0.0 -m "first stable release"
 git push origin v1.0.0
 ```
 
-Le `.zip` produit contient un `.app` **non signé** (ad-hoc), donc soumis au
-warning Gatekeeper au premier lancement (voir Option 1).
+Le `.zip` produit contient un `.app` **non signé** (ad-hoc), donc soumis
+au warning Gatekeeper au premier lancement (voir Option 1).
 
 ---
 
 ## Option 1 — Distribution locale ad-hoc (sans notarisation)
 
-Pour usage personnel, prototype, ou diffusion au sein d'une équipe restreinte.
+Pour usage personnel, prototype, ou diffusion au sein d'une équipe
+restreinte.
 
 ### Étapes
 
-1. **Archive** : `Product → Destination → Any Mac` puis `Product → Archive`.
-2. **Export** dans Organizer : `Distribute App → Copy App → Next → choisir un dossier`.
+1. **Archive** : `Product → Destination → Any Mac` puis `Product →
+   Archive`.
+2. **Export** dans Organizer : `Distribute App → Copy App → Next →
+   choisir un dossier`.
 
 Résultat : un fichier `voltapeak_loops.app`.
 
@@ -92,17 +106,18 @@ hdiutil create -volname "voltapeak_loops" \
 
 Sans notarisation, macOS affiche au premier lancement :
 
-> *« voltapeak_loops ne peut pas être ouvert car il provient d'un développeur non identifié »*
+> *« voltapeak_loops ne peut pas être ouvert car il provient d'un
+> développeur non identifié »*
 
-L'utilisateur doit alors **clic droit → Ouvrir** puis confirmer dans la boîte
-de dialogue. Les lancements suivants sont normaux.
+L'utilisateur doit alors **clic droit → Ouvrir** puis confirmer dans la
+boîte de dialogue. Les lancements suivants sont normaux.
 
 ---
 
 ## Option 2 — Distribution publique (avec notarisation Apple)
 
-Pour diffusion large (site web, distribution à des partenaires externes, etc.)
-sans warning au lancement.
+Pour diffusion large (site web, distribution à des partenaires externes,
+etc.) sans warning au lancement.
 
 ### Prérequis additionnels
 
@@ -119,7 +134,8 @@ sans warning au lancement.
 2. **Distribute App** dans Organizer :
    - Choisir **« Developer ID »** (pas « Copy App »).
    - **Upload** pour notarisation (option par défaut).
-   - Apple va signer + scanner + notariser (quelques minutes à quelques heures).
+   - Apple va signer + scanner + notariser (quelques minutes à quelques
+     heures).
 3. **Vérifier** :
    ```bash
    xcrun notarytool history --apple-id <votre@email.com>
@@ -164,7 +180,7 @@ spctl -a -vv -t install voltapeak_loops.app
 | « voltapeak_loops.app est endommagé » | Attributs de quarantaine après téléchargement | `xattr -cr voltapeak_loops.app` |
 | Warning « développeur non identifié » | App non notarisée | Clic droit → Ouvrir, ou notariser (option 2) |
 | `notarytool` échoue | Compte Developer non actif / mot de passe d'app | Régénérer mot de passe d'app sur appleid.apple.com |
-| L'app crashe sur d'autres Macs | macOS minimum incompatible | Vérifier Build Settings : `MACOSX_DEPLOYMENT_TARGET ≤ 26.1` ne fonctionnera pas, l'app exige 26.1+ à cause de l'API et du framework Charts |
+| L'app crashe sur d'autres Macs | macOS minimum incompatible | L'app exige macOS 26.1+ à cause de l'API et du framework Charts |
 
 ---
 
@@ -183,7 +199,7 @@ spctl -a -vv -t install voltapeak_loops.app
 | Canal | Pour |
 |---|---|
 | GitHub Releases (via `release.yml`) | Open source, publication officielle |
-| Artifact GitHub Actions (via `build-artifact.yml`) | Smoke-test interne, builds intermediates |
+| Artifact GitHub Actions (via `build-artifact.yml`) | Smoke-test interne, builds intermédiaires |
 | Email | < 25 Mo, audience restreinte |
 | iCloud Drive / Dropbox | Diffusion interne via lien |
 | Site web personnel | Distribution publique |
