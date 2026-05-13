@@ -32,3 +32,6 @@ Package.resolved
 *.xcodeproj/*
 !*.xcodeproj/project.pbxproj
 !*.xcodeproj/xcshareddata/
+
+# Visual Studio
+.vs
