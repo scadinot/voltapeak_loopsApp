@@ -28,6 +28,9 @@ PRODUCT_BUNDLE_IDENTIFIER     = com.cadinot.voltapeak-loops
 MACOSX_DEPLOYMENT_TARGET      = 26.1
 ```
 
+Le projet est livré avec `CODE_SIGN_IDENTITY = "-"` (ad-hoc), suffisant
+pour exécuter sur la machine de développement et pour les workflows CI.
+
 ---
 
 ## Option 0 — CI GitHub Actions (recommandé pour la diffusion habituelle)
@@ -41,8 +44,7 @@ Déclenché à chaque push sur `main` (ou manuellement via
 
 1. Détecte le scheme par défaut via
    `xcodebuild -list -project voltapeak_loops.xcodeproj -json`.
-2. Archive l'app sur `macos-latest` avec signature ad-hoc
-   (`CODE_SIGN_IDENTITY="-"`).
+2. Archive l'app avec signature ad-hoc (`CODE_SIGN_IDENTITY="-"`).
 3. Upload du contenu de
    `build/voltapeak_loops.xcarchive/Products/Applications` comme
    artifact GitHub nommé d'après le scheme et le SHA :
@@ -122,11 +124,11 @@ etc.) sans warning au lancement.
 ### Prérequis additionnels
 
 - Compte **Apple Developer Program** actif (99 €/an).
+- Certificat **Developer ID Application** installé dans le Keychain.
 - Hardened Runtime activé dans Signing & Capabilities :
   ```
   ✅ Hardened Runtime
   ```
-- Certificat **Developer ID Application** installé dans le Keychain.
 
 ### Étapes
 
@@ -146,10 +148,8 @@ etc.) sans warning au lancement.
    ```
 5. **Créer et agrafer le DMG** :
    ```bash
-   hdiutil create -volname "voltapeak_loops" \
-                  -srcfolder voltapeak_loops.app \
-                  -ov -format UDZO \
-                  voltapeak_loops-1.0.dmg
+   hdiutil create -volname "voltapeak_loops" -srcfolder voltapeak_loops.app \
+                  -ov -format UDZO voltapeak_loops-1.0.dmg
    xcrun stapler staple voltapeak_loops-1.0.dmg
    ```
 
@@ -203,6 +203,19 @@ spctl -a -vv -t install voltapeak_loops.app
 | Email | < 25 Mo, audience restreinte |
 | iCloud Drive / Dropbox | Diffusion interne via lien |
 | Site web personnel | Distribution publique |
+
+---
+
+## Versioning
+
+- `MARKETING_VERSION` (version publique, ex. `1.0`) : modifiée dans
+  `project.pbxproj`.
+- `CURRENT_PROJECT_VERSION` (build number, ex. `1`) : incrémentée à
+  chaque release.
+- Mise à jour de [CHANGELOG.md](CHANGELOG.md) à chaque release.
+- Tag git annoté : `git tag -a v1.0.0 -m "Release 1.0.0"` puis
+  `git push origin v1.0.0` ; le workflow `release.yml` se déclenche
+  automatiquement.
 
 ---
 
