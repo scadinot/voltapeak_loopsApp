@@ -2,13 +2,14 @@
 
 Guide à l'attention des contributeurs souhaitant faire évoluer
 `voltapeak_loopsApp`. Pour la **méthodologie de validation**, voir
-[VALIDATION.md](VALIDATION.md). Pour les **détails algorithmiques**, voir
-[ALGORITHMS.md](ALGORITHMS.md).
+[VALIDATION.md](VALIDATION.md). Pour les **détails algorithmiques**,
+voir [ALGORITHMS.md](ALGORITHMS.md).
 
 Les fonctions d'analyse de cette app sont **reprises à l'identique** de
-[`voltapeakApp`](https://github.com/scadinot/voltapeakApp), qui en est la
-**référence canonique** ; le rendu PNG par fichier est calqué sur celui
-de [`voltapeak_batchApp`](https://github.com/scadinot/voltapeak_batchApp).
+[`voltapeakApp`](https://github.com/scadinot/voltapeakApp), qui en est
+la **référence canonique** ; le rendu PNG par fichier est calqué sur
+celui de
+[`voltapeak_batchApp`](https://github.com/scadinot/voltapeak_batchApp).
 Toute modification numérique se fait dans `voltapeakApp` en premier et
 est propagée ici sans changement (cf. § « Mise à jour des fonctions
 d'analyse »).
@@ -19,7 +20,7 @@ d'analyse »).
 |---|---|
 | **macOS** | 26.1+ (Tahoe) |
 | **Xcode** | 26+ |
-| **Python** (uniquement pour validation croisée) | 3.11+ avec `numpy`, `scipy`, `pybaselines`, `pandas`, `matplotlib`, `openpyxl` |
+| **Python** (uniquement pour validation) | 3.11+ avec `numpy`, `scipy`, `pybaselines`, `pandas`, `matplotlib` |
 
 Toutes les bibliothèques Swift utilisées proviennent du SDK macOS
 (`SwiftUI`, `Charts`, `Foundation`, `AppKit`, `Observation`). **Aucun
@@ -34,18 +35,18 @@ open voltapeak_loops.xcodeproj
 # ⌘R pour compiler et lancer
 ```
 
-En ligne de commande (utilisé par la CI) :
+En ligne de commande :
 
 ```bash
-xcodebuild archive \
-  -project voltapeak_loops.xcodeproj \
-  -scheme voltapeak_loops \
-  -configuration Release \
-  -destination 'generic/platform=macOS' \
-  -archivePath build/voltapeak_loops.xcarchive \
-  CODE_SIGN_IDENTITY="-" \
-  CODE_SIGN_STYLE=Manual
+xcodebuild -project voltapeak_loops.xcodeproj \
+           -scheme voltapeak_loops \
+           -configuration Release \
+           build
 ```
+
+La CI utilise `xcodebuild archive ... CODE_SIGN_IDENTITY="-" CODE_SIGN_STYLE=Manual`
+pour produire un `.xcarchive` non signé (cf.
+[DISTRIBUTION.md § Option 0](DISTRIBUTION.md)).
 
 ### Resets utiles
 
@@ -93,7 +94,7 @@ voltapeak_loopsApp/                # racine du dépôt
 | Organisation interne | Sections `// MARK: - Section` pour la navigation Xcode |
 | Documentation d'API | Triple-slash `///` avec balises `- Parameters`, `- Returns`, `- Throws` |
 | Acronymes scientifiques | Conservés en minuscules : `aspls`, `savgol`, etc. |
-| Actor isolation | **Pas de** `@MainActor` au niveau target. Seuls `VoltapeakLoopsViewModel` et les vues SwiftUI sont explicitement `@MainActor`. Les compute namespaces (`SavitzkyGolay`, `WhittakerASPLS`, etc.) sont nonisolated. |
+| Actor isolation | **Pas de** `@MainActor` au niveau target. Seuls `VoltapeakLoopsViewModel` et les vues SwiftUI sont explicitement `@MainActor` ; les compute namespaces (`SavitzkyGolay`, `WhittakerASPLS`, etc.) restent nonisolated. |
 
 Les fichiers Swift sont écrits en français pour la cohérence avec l'UI
 et les commentaires existants. C'est un projet francophone assumé.
@@ -127,8 +128,8 @@ et les commentaires existants. C'est un projet francophone assumé.
 ### Exemple : changer un paramètre d'algorithme
 
 Les paramètres scientifiques sont hardcodés dans
-`LoopsBatchProcessor.processOne` (mimant `voltapeakApp` pour conserver la
-parité). Pour les rendre configurables :
+`LoopsBatchProcessor.processOne` (mimant `voltapeakApp` pour conserver
+la parité). Pour les rendre configurables :
 
 - Étendre `SWVFileConfiguration` ou `BatchOptions`.
 - Surfacer dans `ContentView.settingsBox`.
@@ -141,7 +142,7 @@ Lorsqu'une amélioration y est apportée
 (`SavitzkyGolay.swift`, `WhittakerASPLS.swift`, `SignalProcessing.swift`,
 `SWVFileReader.swift`, `VoltammetryData.swift`) :
 
-1. Copier le fichier modifié dans `voltapeak_loops/`.
+1. Copier le fichier modifié tel quel dans `voltapeak_loops/`.
 2. Mettre à jour l'entête de commentaire (changer `voltapeak` →
    `voltapeak_loops`).
 3. Ajouter les conformances `Sendable` requises pour `TaskGroup` (les
@@ -155,7 +156,7 @@ Lorsqu'une amélioration y est apportée
 ### Logs console Xcode
 
 Le `VoltapeakLoopsViewModel.run` émet des `appendLog(...)` que
-l'utilisateur voit dans la GUI :
+l'utilisateur voit dans la GUI, et qui apparaissent aussi en console :
 
 ```
 Nettoyage du dossier de sortie...
@@ -168,7 +169,7 @@ Temps écoulé : 1.42 secondes.
 ```
 
 Pour des détails plus fins (signal intermédiaire, baseline, etc.),
-ajouter des `print(...)` directement dans `processOne`. Format
+ajouter des `print(...)` dans `LoopsBatchProcessor.processOne`. Format
 recommandé pour la comparaison avec `voltapeakApp` / Python :
 
 ```swift
@@ -192,24 +193,42 @@ divergé dans la copie — voir [VALIDATION.md](VALIDATION.md) §
 
 **État actuel** : aucun test unitaire automatisé. Les fonctions
 d'analyse sont déjà validées dans `voltapeakApp` (bit-exact contre
-Python). La validation propre au batch est manuelle, documentée dans
+Python, cf.
+[voltapeakApp/VALIDATION.md](https://github.com/scadinot/voltapeakApp/blob/main/VALIDATION.md)).
+La validation propre au batch est manuelle, documentée dans
 [VALIDATION.md](VALIDATION.md).
 
 Pistes pour ajouter une cible de tests :
 
-1. **Tests algorithmiques** (priorité faible — déjà validés dans
-   `voltapeakApp`).
-2. **Tests d'agrégation** : construire un `[BatchFileResult]`
-   synthétique → appeler `AggregatedXLSXWriter.build` → vérifier l'XML
-   produit (snapshot test).
+1. **Tests algorithmiques** : priorité faible — déjà couverts par
+   `voltapeakTests` côté `voltapeakApp`.
+2. **Tests d'agrégation** : construire un `[BatchFileResult]` synthétique
+   → appeler `AggregatedXLSXWriter.build` → vérifier l'XML produit
+   (snapshot test).
 3. **Tests de parsing** : `FileNameParser.parse` sur une table de cas
    (loops, dosage, casse, formats invalides).
 4. **Tests d'intégration** : charger un mini-dossier de fixtures →
-   lancer `LoopsBatchProcessor.processOne` sur chaque fichier → vérifier
-   pic + métadonnées.
+   lancer `LoopsBatchProcessor.processOne` sur chaque fichier →
+   vérifier pic + métadonnées.
+5. **Tests XLSX** : lecture-aller-retour avec ZIP / `openpyxl` (Python)
+   pour vérifier la conformité OOXML.
 
-Pour démarrer : ajouter une cible `voltapeak_loopsTests` dans Xcode,
-framework `Swift Testing` ou XCTest.
+Pour démarrer : *File* → *New* → *Target* → **Unit Testing Bundle**,
+nom suggéré `voltapeak_loopsTests`, framework Swift Testing ou XCTest.
+
+## Profiling
+
+L'asPLS est l'étape la plus coûteuse (élimination de Gauss dense
+O(n³)). Pistes d'optimisation :
+
+- Exploiter la structure pentadiagonale de `D^T·D` via un solveur de
+  bandes (LAPACK `dgbsv`) — gain potentiel ~10× sur n grand.
+- Vectoriser les boucles via `Accelerate` (`vDSP`, `vForce`).
+- Mettre en cache `D^T·D` pour un `n` constant.
+
+Toute optimisation doit être validée bit-exact contre la version
+actuelle sur le jeu de fixtures (cf. [VALIDATION.md](VALIDATION.md))
+avant merge.
 
 ## Ressources externes
 
