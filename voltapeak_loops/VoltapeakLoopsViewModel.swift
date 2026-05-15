@@ -144,13 +144,16 @@ final class VoltapeakLoopsViewModel {
                     nextIndex += 1
                 }
 
-                // Drain : à chaque tâche terminée, on en lance une nouvelle
-                // si la file d'entrée n'est pas épuisée.
+                // Drain : à chaque tâche terminée, on ré-amorce **avant**
+                // `didFinish` pour garder la fenêtre de concurrence pleine
+                // pendant que les exports par-fichier (PNG/CSV/XLSX) bloquent
+                // le MainActor. Sans cette inversion, la fenêtre tombe à
+                // `maxConcurrency - 1` pendant chaque export (~200-500 ms
+                // pour le PNG via ImageRenderer).
                 var collected: [BatchFileResult] = []
                 collected.reserveCapacity(files.count)
                 while let r = await group.next() {
                     collected.append(r)
-                    didFinish(file: r, options: options)
                     if nextIndex < files.count {
                         let url = files[nextIndex]
                         group.addTask(priority: .utility) {
@@ -158,6 +161,7 @@ final class VoltapeakLoopsViewModel {
                         }
                         nextIndex += 1
                     }
+                    didFinish(file: r, options: options)
                 }
                 return collected
             }
