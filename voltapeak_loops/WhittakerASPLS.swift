@@ -5,14 +5,24 @@
 //  Implémentation EXACTE de pybaselines.whittaker.aspls (Zhang 2020).
 //  Reprise à l'identique de scadinot/voltapeakApp.
 //
+//  Solveur banded LAPACK `dgbsv_` via Accelerate.framework : la matrice
+//  `diag(α)·(λ·D^TD) + diag(w)` est pentadiagonale (KL=KU=2), résolue en
+//  O(n) au lieu d'un Gauss dense O(n³). Aligné sur la référence canonique
+//  scadinot/voltapeak_batchApp.
+//
 //  Note : la boucle `for _ in 0...maxIter` exécute volontairement `maxIter + 1`
 //  itérations, ce qui reproduit exactement `for i in range(max_iter + 1)` de
 //  pybaselines._Whittaker.aspls.
 //
 
 import Foundation
+import Accelerate
 
 enum WhittakerASPLS {
+
+    /// Garde-fou : au-delà de cette taille, le caller DOIT refuser le fichier
+    /// en amont. Filet de sécurité contre les fichiers corrompus ou mal parsés.
+    static let maxN: Int = 200_000
 
     static func aspls(
         y: [Double],
@@ -25,21 +35,38 @@ enum WhittakerASPLS {
         asymmetricCoef: Double = 0.5
     ) -> [Double] {
         let n = y.count
+        // Garde-fou debug-only. Les callers (`LoopsBatchProcessor.processOne`)
+        // sont responsables du filtre amont qui remonte une `FileError.tooManyPoints`.
+        // En Release, on laisse passer si jamais un chemin oublie le check : le
+        // solveur banded reste tractable bien au-delà de `maxN`.
+        assert(
+            n <= maxN,
+            "WhittakerASPLS.aspls: signal trop grand (\(n) > \(maxN)). Le caller doit filtrer en amont."
+        )
+
         var w = weights ?? [Double](repeating: 1.0, count: n)
         var a = alpha ?? [Double](repeating: 1.0, count: n)
 
-        let DTD = buildDTD(n: n, diffOrder: diffOrder)
+        // Format LAPACK band column-major : KL=KU=2, LDAB = 2·KL+KU+1 = 7.
+        let kl = 2
+        let ku = 2
+        let ldab = 2 * kl + ku + 1   // 7
+
+        let dtdBandedTemplate = buildDTDBanded(n: n, diffOrder: diffOrder, kl: kl, ku: ku, ldab: ldab)
 
         var baseline = [Double](repeating: 0.0, count: n)
 
         for _ in 0...maxIter {
-            var A = [[Double]](repeating: [Double](repeating: 0.0, count: n), count: n)
-            for i in 0..<n {
-                let scale = lam * a[i]
-                for j in 0..<n {
-                    A[i][j] = scale * DTD[i][j]
+            // ab = diag(α) · (λ · DTD), puis + diag(w). α multiplie la LIGNE i.
+            var ab = dtdBandedTemplate
+            for j in 0..<n {
+                let iMin = max(0, j - ku)
+                let iMax = min(n - 1, j + kl)
+                for i in iMin...iMax {
+                    let bandRow = kl + ku + i - j
+                    ab[bandRow + j * ldab] *= lam * a[i]
                 }
-                A[i][i] += w[i]
+                ab[(kl + ku) + j * ldab] += w[j]
             }
 
             var b = [Double](repeating: 0.0, count: n)
@@ -47,7 +74,38 @@ enum WhittakerASPLS {
                 b[i] = w[i] * y[i]
             }
 
-            baseline = solveFallback(A: A, b: b)
+            // Résolution banded LU avec pivotage partiel : dgbsv_
+            var n_l = __CLPK_integer(n)
+            var kl_l = __CLPK_integer(kl)
+            var ku_l = __CLPK_integer(ku)
+            var nrhs = __CLPK_integer(1)
+            var ldab_l = __CLPK_integer(ldab)
+            var ldb_l = __CLPK_integer(n)
+            var info = __CLPK_integer(0)
+            var ipiv = [__CLPK_integer](repeating: 0, count: n)
+
+            ab.withUnsafeMutableBufferPointer { abPtr in
+                b.withUnsafeMutableBufferPointer { bPtr in
+                    _ = dgbsv_(
+                        &n_l, &kl_l, &ku_l, &nrhs,
+                        abPtr.baseAddress, &ldab_l,
+                        &ipiv,
+                        bPtr.baseAddress, &ldb_l,
+                        &info
+                    )
+                }
+            }
+            // info<0 = bug d'appel (argument invalide à la position -info).
+            // info>0 = matrice singulière à la ligne `info` (NaN/Inf dans y, ou
+            // poids/α extrêmes). Dans les deux cas, on fail-fast avec un message
+            // diagnostique au lieu d'un crash opaque.
+            if info < 0 {
+                fatalError("dgbsv_ : argument invalide à la position \(-info) (bug d'appel interne).")
+            }
+            if info > 0 {
+                fatalError("dgbsv_ : matrice singulière à la ligne \(info) — vérifiez NaN/Inf dans y, ou poids/α extrêmes.")
+            }
+            baseline = b
 
             var residual = [Double](repeating: 0.0, count: n)
             var maxAbsRes = 0.0
@@ -98,77 +156,54 @@ enum WhittakerASPLS {
         return baseline
     }
 
-    /// Construit D^T D directement pour diffOrder=2 (matrice pentadiagonale n×n).
-    private static func buildDTD(n: Int, diffOrder: Int) -> [[Double]] {
+    /// Construit D^T D directement en format LAPACK band column-major pour diffOrder=2.
+    /// Pour les détails du stockage band, voir l'en-tête de fichier.
+    private static func buildDTDBanded(
+        n: Int, diffOrder: Int, kl: Int, ku: Int, ldab: Int
+    ) -> [Double] {
         guard diffOrder == 2 else {
             fatalError("Seul diffOrder=2 est supporté")
         }
 
-        var DTD = [[Double]](repeating: [Double](repeating: 0.0, count: n), count: n)
+        var ab = [Double](repeating: 0.0, count: ldab * n)
 
-        for i in 0..<n {
-            for j in 0..<n {
-                let dist = abs(i - j)
-                if dist == 0 {
-                    if i == 0 || i == n - 1 {
-                        DTD[i][j] = 1.0
-                    } else if i == 1 || i == n - 2 {
-                        DTD[i][j] = 5.0
-                    } else {
-                        DTD[i][j] = 6.0
-                    }
-                } else if dist == 1 {
-                    if (i == 0 && j == 1) || (i == 1 && j == 0) ||
-                       (i == n - 1 && j == n - 2) || (i == n - 2 && j == n - 1) {
-                        DTD[i][j] = -2.0
-                    } else {
-                        DTD[i][j] = -4.0
-                    }
-                } else if dist == 2 {
-                    DTD[i][j] = 1.0
-                }
+        // Diagonale principale : 1 aux coins, 5 aux quasi-bords, 6 au centre
+        for j in 0..<n {
+            let v: Double
+            if j == 0 || j == n - 1 {
+                v = 1.0
+            } else if j == 1 || j == n - 2 {
+                v = 5.0
+            } else {
+                v = 6.0
             }
+            ab[(kl + ku) + j * ldab] = v
         }
 
-        return DTD
-    }
-
-    /// Élimination de Gauss avec pivotage partiel (système non symétrique à cause de diag(α)).
-    private static func solveFallback(A: [[Double]], b: [Double]) -> [Double] {
-        let n = A.count
-        var M = A
-        var y = b
-
-        for k in 0..<n {
-            var maxRow = k
-            var maxVal = abs(M[k][k])
-            for i in (k+1)..<n {
-                if abs(M[i][k]) > maxVal {
-                    maxVal = abs(M[i][k])
-                    maxRow = i
-                }
-            }
-            if maxRow != k {
-                M.swapAt(k, maxRow)
-                y.swapAt(k, maxRow)
-            }
-            for i in (k+1)..<n {
-                let factor = M[i][k] / M[k][k]
-                for j in k..<n {
-                    M[i][j] -= factor * M[k][j]
-                }
-                y[i] -= factor * y[k]
-            }
+        // Super-diagonale 1 (i = j-1) : -2 aux extrémités, -4 sinon
+        for j in 1..<n {
+            let i = j - 1
+            let v: Double = ((i == 0 && j == 1) || (i == n - 2 && j == n - 1)) ? -2.0 : -4.0
+            ab[(kl + ku - 1) + j * ldab] = v
         }
 
-        var x = [Double](repeating: 0.0, count: n)
-        for i in stride(from: n-1, through: 0, by: -1) {
-            var sum = y[i]
-            for j in (i+1)..<n {
-                sum -= M[i][j] * x[j]
-            }
-            x[i] = sum / M[i][i]
+        // Sub-diagonale 1 (i = j+1) : -2 aux extrémités, -4 sinon
+        for j in 0..<(n - 1) {
+            let i = j + 1
+            let v: Double = ((i == 1 && j == 0) || (i == n - 1 && j == n - 2)) ? -2.0 : -4.0
+            ab[(kl + ku + 1) + j * ldab] = v
         }
-        return x
+
+        // Super-diagonale 2 (i = j-2) : 1
+        for j in 2..<n {
+            ab[(kl + ku - 2) + j * ldab] = 1.0
+        }
+
+        // Sub-diagonale 2 (i = j+2) : 1
+        for j in 0..<(n - 2) {
+            ab[(kl + ku + 2) + j * ldab] = 1.0
+        }
+
+        return ab
     }
 }

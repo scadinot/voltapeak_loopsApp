@@ -16,6 +16,7 @@ enum SWVFileReader {
         case fileNotFound
         case invalidFormat
         case insufficientData
+        case tooManyPoints(Int, limit: Int)
         case permissionDenied
         case encodingError
 
@@ -24,6 +25,8 @@ enum SWVFileReader {
             case .fileNotFound: return "Fichier introuvable"
             case .invalidFormat: return "Format invalide : deux colonnes (Potentiel, Courant) attendues."
             case .insufficientData: return "Moins de 5 points de données."
+            case .tooManyPoints(let n, let limit):
+                return "Trop de points : \(n) > \(limit). Garde-fou asPLS déclenché."
             case .permissionDenied: return "Permissions insuffisantes pour accéder au fichier."
             case .encodingError: return "Erreur d'encodage (latin1 attendu)."
             }

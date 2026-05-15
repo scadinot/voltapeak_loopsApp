@@ -112,6 +112,15 @@ enum LoopsBatchProcessor {
 
             // 3. Baseline asPLS avec exclusion 3% autour du pic
             let n = smoothed.count
+
+            // Garde-fou : refuser les fichiers anormalement grands en amont du
+            // solveur. Le solveur banded reste tractable bien au-delà, mais on
+            // bloque ici les acquisitions/parsing pathologiques pour qu'ils
+            // remontent comme erreur explicite.
+            guard n <= WhittakerASPLS.maxN else {
+                throw SWVFileReader.FileError.tooManyPoints(n, limit: WhittakerASPLS.maxN)
+            }
+
             let lam = 1e3 * Double(n * n)
             let span = potentials.last! - potentials.first!
             let exclusionWidth = 0.03 * span
