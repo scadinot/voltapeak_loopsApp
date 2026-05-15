@@ -5,8 +5,9 @@
 //  Orchestration de l'analyse batch :
 //  - paramètres saisis depuis la GUI,
 //  - préparation du dossier de sortie hors MainActor (peut bloquer sur disque réseau),
-//  - parallélisme via TaskGroup (un Task par fichier) ou Task détachée
-//    séquentielle (utile au débogage, équivalent du bouton de la GUI Python),
+//  - parallélisme via TaskGroup (pool sliding-window borné à
+//    `activeProcessorCount`) ou Task détachée séquentielle (utile au
+//    débogage, équivalent du bouton de la GUI Python),
 //  - exports par-fichier (PNG/CSV/XLSX) sur le MainActor après chaque calcul
 //    (les vecteurs triés sont réutilisés tels quels via BatchFileResult.signals),
 //  - agrégation finale puis génération du .xlsx final.
@@ -119,19 +120,47 @@ final class VoltapeakLoopsViewModel {
         var results: [BatchFileResult] = []
 
         if useMultiThread {
+            // Pool sliding-window borné à `activeProcessorCount` tâches en vol.
+            // Évite l'oversubscription GCD (un addTask par fichier
+            // immédiatement → N Tasks concurrentes sur un dossier de N
+            // fichiers, ce qui dégrade les performances par thrashing dès
+            // que N dépasse largement le nombre de cœurs). Aligné sur le
+            // pattern utilisé par `BatchViewModel.runParallel` côté
+            // voltapeak_batchApp.
+            let maxConcurrency = max(1, ProcessInfo.processInfo.activeProcessorCount)
+
             results = await withTaskGroup(
                 of: BatchFileResult.self,
                 returning: [BatchFileResult].self
             ) { group in
-                for url in files {
+                var nextIndex = 0
+
+                // Amorce du pool : `maxConcurrency` tâches en vol.
+                while nextIndex < files.count && nextIndex < maxConcurrency {
+                    let url = files[nextIndex]
                     group.addTask(priority: .utility) {
                         LoopsBatchProcessor.processOne(url: url, options: options)
                     }
+                    nextIndex += 1
                 }
+
+                // Drain : à chaque tâche terminée, on ré-amorce **avant**
+                // `didFinish` pour garder la fenêtre de concurrence pleine
+                // pendant que les exports par-fichier (PNG/CSV/XLSX) bloquent
+                // le MainActor. Sans cette inversion, la fenêtre tombe à
+                // `maxConcurrency - 1` pendant chaque export (~200-500 ms
+                // pour le PNG via ImageRenderer).
                 var collected: [BatchFileResult] = []
                 collected.reserveCapacity(files.count)
-                for await r in group {
+                while let r = await group.next() {
                     collected.append(r)
+                    if nextIndex < files.count {
+                        let url = files[nextIndex]
+                        group.addTask(priority: .utility) {
+                            LoopsBatchProcessor.processOne(url: url, options: options)
+                        }
+                        nextIndex += 1
+                    }
                     didFinish(file: r, options: options)
                 }
                 return collected

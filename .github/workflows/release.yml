@@ -20,16 +20,12 @@ jobs:
 
       - name: Detect scheme
         run: |
-          default=$(xcodebuild -list -project voltapeak_loops.xcodeproj -json | ruby -e "require 'json'; puts JSON.parse(STDIN.read)['project']['schemes'][0]")
+          default=$(xcodebuild -list -json | ruby -e "require 'json'; puts JSON.parse(STDIN.read)['project']['schemes'][0]")
           if [ -z "$default" ]; then
-            echo "::error::No Xcode scheme detected. Share a scheme via Xcode -> Manage Schemes (Shared checkbox) and commit voltapeak_loops.xcodeproj/xcshareddata/xcschemes/."
+            echo "::error::No Xcode scheme detected."
             exit 1
           fi
-          {
-            echo "scheme<<EOF"
-            echo "$default"
-            echo "EOF"
-          } >> "$GITHUB_ENV"
+          echo "scheme=$default" >> "$GITHUB_ENV"
           echo "Using scheme: $default"
 
       - name: Archive

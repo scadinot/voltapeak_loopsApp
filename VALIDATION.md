@@ -1,18 +1,19 @@
 # Validation
 
-Ce document décrit la méthodologie utilisée pour valider que `voltapeak_loops`
-produit les bons résultats, en deux temps :
+Ce document décrit la méthodologie utilisée pour valider que
+`voltapeak_loopsApp` produit les bons résultats, en deux temps :
 
 1. **Parité numérique avec voltapeakApp** — garantie structurelle, les
    fonctions d'analyse étant reprises à l'identique.
-2. **Validation propre au batch** — spécifique à cette app : parsing,
-   parallélisme, agrégation XLSX, gestion d'erreurs.
+2. **Validation propre au batch** — spécifique à cette app : parsing
+   loops/dosage, parallélisme, agrégation XLSX hiérarchique, gestion
+   d'erreurs.
 
 ## 1. Parité numérique avec voltapeakApp (et donc Python)
 
 Les cinq fichiers suivants sont **identiques byte-pour-byte** à ceux de
 [`scadinot/voltapeakApp`](https://github.com/scadinot/voltapeakApp), à
-l'enrichissement Sendable près :
+l'enrichissement `Sendable` près :
 
 | Fichier | Rôle |
 |---|---|
@@ -23,20 +24,22 @@ l'enrichissement Sendable près :
 | `VoltammetryData.swift` | Modèles de données |
 
 La validation bit-exact (à la 6ᵉ décimale) contre la référence Python
-(`scipy`, `pybaselines`) a été réalisée dans `voltapeakApp` et est documentée
-ici : [voltapeakApp/VALIDATION.md](https://github.com/scadinot/voltapeakApp/blob/main/VALIDATION.md).
+(`scipy`, `pybaselines`) a été réalisée dans `voltapeakApp` et est
+documentée ici :
+[voltapeakApp/VALIDATION.md](https://github.com/scadinot/voltapeakApp/blob/main/VALIDATION.md).
 
 Cette validation n'est **pas rejouée** ici. Pour la vérifier en pratique :
 
 1. Choisir un fichier SWV de test.
 2. L'ouvrir dans `voltapeakApp` → noter le pic affiché.
-3. Le placer seul dans un dossier et lancer `voltapeak_loops` dessus.
+3. Le placer seul dans un dossier et lancer l'app `voltapeak_loops`
+   (scheme du repo `voltapeak_loopsApp`) dessus.
 4. Ouvrir le `<dossier>.xlsx` produit : le pic dans l'unique ligne doit
    être identique à celui affiché par `voltapeakApp` (mêmes décimales).
 
 Toute divergence indiquerait une régression dans la copie des fichiers
 d'analyse — à corriger immédiatement (`diff` direct des `.swift` avec
-voltapeakApp).
+`voltapeakApp`).
 
 ## 2. Validation propre au batch
 
@@ -59,16 +62,23 @@ Lancer **deux fois** le même dossier d'entrée :
 - une fois en mode multi-thread (case « Multi-thread » cochée),
 - une fois en mode séquentiel.
 
-Les deux `<dossier>.xlsx` produits doivent être **identiques** (mêmes valeurs
-de pic dans toutes les cellules, même ordre de lignes et colonnes), seul le
-temps écoulé affiché dans le journal diffère. Si ce n'est pas le cas, c'est
-le signe d'un data-race — à corriger.
+Les deux `<dossier>.xlsx` produits doivent être **identiques** (mêmes
+valeurs de pic dans toutes les cellules, même ordre de lignes et
+colonnes), seul le temps écoulé affiché dans le journal diffère. Si ce
+n'est pas le cas, c'est le signe d'un data-race — à corriger.
 
-Le pipeline a été conçu pour être **déterministe** : `processOne` est pur
-compute, le tri par potentiel est fait à l'intérieur de la tâche, et
-l'agrégation finale trie les clés (canal, variante) avant génération XLSX.
-L'ordre dans lequel les tâches du `TaskGroup` se terminent n'a aucun impact
-sur le résultat.
+Le pipeline a été conçu pour être **déterministe** : `processOne` est
+pur compute, le tri par potentiel est fait à l'intérieur de la tâche, et
+l'agrégation finale trie les clés (canal, variante) avant génération
+XLSX. L'ordre dans lequel les tâches du `TaskGroup` se terminent n'a
+aucun impact sur le résultat **tant que le dossier ne contient pas de
+doublons** (même `iterationKey` + même `(canal, variante)`). En présence
+de doublons, l'agrégation conserve la **première occurrence reçue** par
+le ViewModel : en multi-thread, « première » dépend alors de l'ordre de
+complétion des tâches, et la sortie peut différer entre multi-thread et
+séquentiel. Ce cas est signalé par un avertissement rouge dans le
+journal (cf. § 2.e « Doublons ») ; pour une reproductibilité stricte sur
+un dossier susceptible d'en contenir, utiliser le mode séquentiel.
 
 ### (c) Structure du classeur agrégé
 
@@ -92,15 +102,15 @@ Placer dans un même dossier :
 - un fichier dosage (`10_250nm_01_SWV_C05.txt`).
 
 Lancer l'analyse. Résultat attendu :
-- Les deux fichiers sont analysés individuellement (PNG/CSV/XLSX par-fichier
-  produits si activés).
+- Les deux fichiers sont analysés individuellement (PNG/CSV/XLSX
+  par-fichier produits si activés).
 - **Le `<dossier>.xlsx` final n'est PAS écrit**.
 - Le journal affiche un message rouge : *« Erreur : le dossier mélange
-  plusieurs formats de fichiers (loops, dosage). Export annulé pour préserver
-  la cohérence du tableau récapitulatif. »*.
+  plusieurs formats de fichiers (loops, dosage). Export annulé pour
+  préserver la cohérence du tableau récapitulatif. »*.
 - Le bouton « Ouvrir le dossier de résultats » reste désactivé.
 
-### (e) Gestion d'erreurs
+### (e) Cas d'erreur
 
 | Scénario | Comportement attendu |
 |---|---|
@@ -108,7 +118,7 @@ Lancer l'analyse. Résultat attendu :
 | Dossier d'entrée vide (aucun `.txt`) | Erreur rouge, terminaison propre |
 | Dossier de sortie non créable (permission denied) | Erreur rouge, terminaison propre (grâce à `cleanOutputFolder` `throws`) |
 | Fichier `.txt` avec entête uniquement (< 5 points) | `status = .error("Moins de 5 points de données.")`, ligne rouge dans le journal, autres fichiers continuent |
-| Doublons (canal, variante, itération) | Avertissement rouge, **première occurrence** conservée dans le classeur |
+| Doublons (canal, variante, itération) | Avertissement rouge, **première occurrence reçue** conservée dans le classeur — l'ordre de réception dépend du mode (cf. § 2.b) |
 | Export PNG/CSV/XLSX qui échoue (dossier résultats en lecture seule pendant l'exécution) | Avertissement rouge par fichier, l'analyse continue, le classeur agrégé final n'est pas affecté |
 
 ### (f) Performance approximative
@@ -120,9 +130,9 @@ Sur un MacBook M1 Pro, dossier de 24 fichiers SWV (n=85 points chacun) :
 | Séquentiel | ≈ 1.4 s |
 | Multi-thread (8 cœurs) | ≈ 0.5 s |
 
-Le rendu PNG (`ImageRenderer` sur MainActor) représente ≈50 ms par fichier ;
-activé sur tous les fichiers, il devient le facteur dominant pour les gros
-lots.
+Le rendu PNG (`ImageRenderer` sur MainActor) représente ≈50 ms par
+fichier ; activé sur tous les fichiers, il devient le facteur dominant
+pour les gros lots.
 
 ## 3. Comment reproduire la validation
 
@@ -136,13 +146,14 @@ lots.
 4. Lancer les trois dossiers tour à tour, en mode multi-thread puis
    séquentiel.
 5. Vérifier les six points (a)-(f) ci-dessus.
-6. Optionnel : comparer un pic individuel entre `voltapeak_loops` et
+6. Optionnel : comparer un pic individuel entre `voltapeak_loopsApp` et
    `voltapeakApp` sur le même fichier (cf. § 1).
 
 ## État de la validation
 
-✅ Parité numérique avec voltapeakApp (donc Python) : structurellement
-garantie par la reprise byte-pour-byte des fichiers d'analyse.
+✅ Parité numérique avec `voltapeakApp` (donc Python) : structurellement
+garantie par la reprise byte-pour-byte des fichiers d'analyse — cf.
+[voltapeakApp/VALIDATION.md](https://github.com/scadinot/voltapeakApp/blob/main/VALIDATION.md).
 
 ✅ Parsing loops/dosage : couvert par les regex case-insensitive et la
 conversion stricte de l'`iterationKey`.
@@ -150,5 +161,11 @@ conversion stricte de l'`iterationKey`.
 ✅ Agrégation XLSX : structure 3 lignes d'en-tête + fusions + tri validée
 manuellement sur dossiers de fixtures.
 
-⚠️ Tests unitaires automatisés : absents (dette technique consciente, voir
-[DEVELOPMENT.md § Tests](DEVELOPMENT.md#tests) pour pistes).
+✅ Cohérence parallèle vs séquentiel **en l'absence de doublons** :
+`processOne` pur compute, agrégation finale triée → l'ordre de
+complétion des tâches n'a pas d'impact sur la sortie. En présence de
+doublons, voir § 2.b — le mode séquentiel est recommandé pour la
+reproductibilité stricte.
+
+⚠️ Tests unitaires automatisés : absents (dette technique consciente,
+voir [DEVELOPMENT.md § Tests](DEVELOPMENT.md#tests) pour pistes).

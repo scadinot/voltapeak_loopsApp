@@ -57,8 +57,7 @@ struct ContentView: View {
                             Text($0.displayName).tag($0)
                         }
                     }
-                    .pickerStyle(.radioGroup)
-                    .horizontalRadioGroupLayout()
+                    .pickerStyle(.segmented)
                     .labelsHidden()
                 }
                 GridRow {
@@ -68,8 +67,7 @@ struct ContentView: View {
                             Text($0.displayName).tag($0)
                         }
                     }
-                    .pickerStyle(.radioGroup)
-                    .horizontalRadioGroupLayout()
+                    .pickerStyle(.segmented)
                     .labelsHidden()
                 }
                 GridRow {
@@ -79,8 +77,7 @@ struct ContentView: View {
                         Text("Exporter au format .CSV").tag(BatchOptions.ProcessedExport.csv)
                         Text("Exporter au format Excel").tag(BatchOptions.ProcessedExport.xlsx)
                     }
-                    .pickerStyle(.radioGroup)
-                    .horizontalRadioGroupLayout()
+                    .pickerStyle(.segmented)
                     .labelsHidden()
                 }
                 GridRow {
@@ -89,8 +86,7 @@ struct ContentView: View {
                         Text("Ne pas exporter").tag(false)
                         Text("Exporter au format .png").tag(true)
                     }
-                    .pickerStyle(.radioGroup)
-                    .horizontalRadioGroupLayout()
+                    .pickerStyle(.segmented)
                     .labelsHidden()
                 }
                 GridRow {
@@ -99,8 +95,7 @@ struct ContentView: View {
                         Text("Multi-thread (un Task par cœur)").tag(true)
                         Text("Séquentiel").tag(false)
                     }
-                    .pickerStyle(.radioGroup)
-                    .horizontalRadioGroupLayout()
+                    .pickerStyle(.segmented)
                     .labelsHidden()
                 }
             }
@@ -156,6 +151,7 @@ struct ContentView: View {
             Button("Lancer l'analyse") {
                 Task { await vm.run() }
             }
+            .buttonStyle(.borderedProminent)
             .keyboardShortcut(.defaultAction)
             .disabled(vm.inputFolder == nil || vm.isRunning)
         }
