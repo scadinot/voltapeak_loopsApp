@@ -86,7 +86,7 @@ enum WhittakerASPLS {
 
             ab.withUnsafeMutableBufferPointer { abPtr in
                 b.withUnsafeMutableBufferPointer { bPtr in
-                    _ = dgbsv_(
+                    dgbsv_(
                         &n_l, &kl_l, &ku_l, &nrhs,
                         abPtr.baseAddress, &ldab_l,
                         &ipiv,
