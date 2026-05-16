@@ -24,7 +24,7 @@ Items qui éliminent des pièges connus ou des limitations documentées dans le 
 
 - **Encodage configurable** *(commun)* — l'encodage de lecture est aujourd'hui figé à `ISO Latin-1`. Exposer dans l'UI une bascule `Latin-1 / UTF-8 / UTF-8 BOM`, avec auto-détection optionnelle (heuristique BOM + fallback Latin-1).
 - **Support du pic anodique** *(commun)* — `SWVFileReader.processData` inverse systématiquement le signe du courant. Ajouter dans la GUI une case à cocher *« Pic en courant positif (anodique) »* qui désactive l'inversion.
-- **Affinage des erreurs `FileError`** *(commun)* — enrichir les `LocalizedError` (`tooManyPoints`, `tooFewPoints`, `encodingError`, `permissionDenied`) avec des suggestions actionnables dans le bouton *Aide* de l'alerte (lien direct vers la section *Dépannage* du README).
+- **Affinage des erreurs `FileError`** *(commun)* — enrichir les `LocalizedError` (`fileNotFound`, `invalidFormat`, `insufficientData`, `tooManyPoints`, `permissionDenied`, `encodingError`) avec des suggestions actionnables dans le bouton *Aide* de l'alerte (lien direct vers la section *Dépannage* du README).
 - **Validation préalable du nommage** *(spécifique loops)* — avant lancement, parser tous les noms via `FileNameParser` et afficher dans le journal un récapitulatif clair : nombre de fichiers détectés en format *loops*, en format *dosage*, et ignorés. Permet de repérer un mauvais nommage sans attendre la fin du traitement.
 - **Aperçu du format détecté avant traitement** *(spécifique loops)* — bouton « Analyser le dossier » qui produit le même résumé que ci-dessus dans une feuille modale, sans déclencher le pipeline scientifique. Affiche aussi les conflits éventuels (mix loops/dosage, doublons `(canal, variante)`).
 
